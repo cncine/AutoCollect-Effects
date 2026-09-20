@@ -7,6 +7,92 @@ using UnityEngine;
 using System.Reflection;
 using MelonLoader;
 
+// MelonLogger.Msg();
+// 植物行为
+public static class PlantAction
+{
+    public static void Kernelpult(Projectile projectile)
+    {
+        if (projectile == null) return;
+
+        // 仅黄油
+        if (projectile.mProjectileType != ProjectileType.Butter) return;
+
+        // 老太太叫
+        ModEntry.eventList.Add(new KeyValuePair<string, float>("old-lady", Time.time + 1f));
+
+    }
+    public static void Tanglekelp(Plant thePlant)
+    {
+        if (thePlant == null) return;
+        if (thePlant.mSeedType != SeedType.Tanglekelp) return;
+        PlantState plantsState = thePlant.mState;
+        int cd = thePlant.mStateCountdown;
+        if (plantsState == PlantState.TanglekelpGrabbing && cd == 100)
+        {
+            ModEntry.tanglekelp();
+        }
+    }
+    public static void Squash(Plant thePlant)
+    {
+        if (thePlant == null) return;
+        if (thePlant.mSeedType != SeedType.Squash) return;
+
+        PlantState plantsState = thePlant.mState;
+        int cd = thePlant.mStateCountdown;
+        if (plantsState == PlantState.SquashLook && cd == 80)
+        {
+            // 窝瓜发现敌人
+            int col = thePlant.mPlantCol;
+            int row = thePlant.mStartRow;
+            ModEntry.squash();
+        }
+    }
+    public static void Hypnoshroom(Plant thePlant)
+    {
+        if (thePlant == null) return;
+
+        if (thePlant.mSeedType == SeedType.Hypnoshroom)
+        {
+            int col = thePlant.mPlantCol;
+            int row = thePlant.mStartRow;
+            bool isSleeping = thePlant.mIsAsleep; // ✅读取睡眠状态
+
+            if (!isSleeping)
+            {
+                ModEntry.showWoman(
+                    ModEntry.depositBoard.GridToPixelX(col, row),
+                    ModEntry.depositBoard.GridToPixelY(col, row)
+                );
+            }
+        }
+    }
+    public static void Aashes(Plant thePlant)
+    {
+        int cd = thePlant.mDoSpecialCountdown;
+        if (cd == 99)
+        { // 刚开始爆炸计时
+            switch (thePlant.mSeedType)
+            {
+                case SeedType.Doomshroom:
+                case SeedType.Cherrybomb:
+                    ModEntry.selfDestruct(
+                        ModEntry.depositBoard.GridToPixelX(thePlant.mPlantCol, thePlant.mStartRow),
+                        ModEntry.depositBoard.GridToPixelY(thePlant.mPlantCol, thePlant.mStartRow)
+                    );
+                    break;
+                case SeedType.Jalapeno:
+                    ModEntry.kleeBomb(
+                        ModEntry.depositBoard.GridToPixelX(thePlant.mPlantCol, thePlant.mStartRow),
+                        ModEntry.depositBoard.GridToPixelY(thePlant.mPlantCol, thePlant.mStartRow)
+                    );
+                    break;
+            }
+        }
+    }
+}
+
+// 放置钩子
 [HarmonyPatch(typeof(Board), nameof(Board.AddPlant), new[] { typeof(int), typeof(int), typeof(SeedType), typeof(SeedType) })]
 public class PlantPlacePatch
 {
@@ -29,12 +115,16 @@ public class PlantPlacePatch
             case SeedType.ExplodeONut:
                 ModEntry.kleeBomb();
                 return;
+            case SeedType.Cattail:
+                ModEntry.cattail();
+                return;
         }
-        // 调用我们已经写好的放置植物音效函数
+
         ModEntry.PlayPlantPlaceSound();
     }
 }
 
+// 植物更新钩子
 [HarmonyPatch(typeof(Plant), nameof(Plant.Update))]
 public class PlantUpdateSpecialCountdownPatch
 {
@@ -45,32 +135,16 @@ public class PlantUpdateSpecialCountdownPatch
             case SeedType.Doomshroom:
             case SeedType.Cherrybomb:
             case SeedType.Jalapeno:
+                PlantAction.Aashes(__instance);
                 break;
-            default: return;
-        }
-        int cd = __instance.mDoSpecialCountdown;
-        if (cd == 99)
-        { // 刚开始爆炸计时
-            switch (__instance.mSeedType)
-            {
-                case SeedType.Doomshroom:
-                case SeedType.Cherrybomb:
-                    ModEntry.selfDestruct(
-                        ModEntry.depositBoard.GridToPixelX(__instance.mPlantCol, __instance.mStartRow),
-                        ModEntry.depositBoard.GridToPixelY(__instance.mPlantCol, __instance.mStartRow)
-                    );
-                    break;
-                case SeedType.Jalapeno:
-                    ModEntry.kleeBomb(
-                        ModEntry.depositBoard.GridToPixelX(__instance.mPlantCol, __instance.mStartRow),
-                        ModEntry.depositBoard.GridToPixelY(__instance.mPlantCol, __instance.mStartRow)
-                    );
-                    break;
-            }
+            case SeedType.Tanglekelp:
+                PlantAction.Tanglekelp(__instance);
+                break;
         }
     }
 }
 
+// 缓存Board
 [HarmonyPatch(typeof(Board))]
 public class BoardPatchClass
 {
@@ -78,7 +152,6 @@ public class BoardPatchClass
     [HarmonyPostfix]
     static void InitLevel(Board __instance)
     {
-        // MelonLogger.Msg();
         ModEntry.depositBoard = __instance;
     }
 
@@ -87,49 +160,43 @@ public class BoardPatchClass
     static void DisposeBoardPrefix(Board __instance)
     {
         ModEntry.depositBoard = null;
+        ModEntry.eventList.Clear();
     }
 }
 
+// 魅惑菇钩子
 [HarmonyPatch(typeof(Zombie), nameof(Zombie.EatPlant))]
 public class ZombieEatPlantPatch
 {
     static void Prefix(Plant thePlant)
     {
-        if (thePlant == null) return;
-
-        if (thePlant.mSeedType == SeedType.Hypnoshroom)
-        {
-            int col = thePlant.mPlantCol;
-            int row = thePlant.mStartRow;
-            bool isSleeping = thePlant.mIsAsleep; // ✅读取睡眠状态
-
-            if (!isSleeping)
-            {
-                ModEntry.showWoman(
-                    ModEntry.depositBoard.GridToPixelX(col, row),
-                    ModEntry.depositBoard.GridToPixelY(col, row)
-                );
-            }
-        }
+        PlantAction.Hypnoshroom(thePlant);
     }
 }
 
+// 窝瓜钩子
 [HarmonyPatch(typeof(Plant), nameof(Plant.UpdateSquash))]
 public class PlantUpdateSquashPatch
 {
     static void Postfix(Plant __instance)
     {
-        if (__instance == null) return;
-        if (__instance.mSeedType != SeedType.Squash) return;
+        PlantAction.Squash(__instance);
+    }
+}
 
-        PlantState plantsState = __instance.mState;
-        int cd = __instance.mStateCountdown;
-        if (plantsState == PlantState.SquashLook && cd == 80)
-        {
-            // 窝瓜发现敌人
-            int col = __instance.mPlantCol;
-            int row = __instance.mStartRow;
-            ModEntry.squash();
-        }
+// 植物发射钩子
+[HarmonyPatch(typeof(Board), nameof(Board.AddProjectile), new Type[]
+{
+    typeof(float),
+    typeof(float),
+    typeof(int),
+    typeof(int),
+    typeof(ProjectileType)
+})]
+public class bulletPatch
+{
+    static void Postfix(Projectile __result)
+    {
+        PlantAction.Kernelpult(__result);
     }
 }

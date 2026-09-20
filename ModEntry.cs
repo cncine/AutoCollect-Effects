@@ -11,8 +11,9 @@ using System.Runtime.InteropServices;
 using ImagePopupMod;
 using System.Text.RegularExpressions;
 using Il2CppReloaded.Gameplay;
+using SC_Tools;
 
-[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "1.0.4", "XSC")]
+[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "1.0.5", "XSC")]
 namespace AutoCollect;
 public class ModEntry : MelonMod
 {
@@ -24,20 +25,20 @@ public class ModEntry : MelonMod
     
     public static bool gameIsWon = false;
 
-    // 保存wav文件完整路径，不再存AudioClip
+    // 保存wav文件完整路径
     public static List<string> PickSoundPaths = new List<string>();
     public static List<string> PlantSoundPaths = new List<string>();
-    public static float LastSoundTime;
-    public static float LastBombTime;
-    public const float SoundCooldown = 5f;
+
     public static ImagePopup _popup;
     public static Board depositBoard;
-    // public static GameplayActivity depositGameplayActivity;
+    public static string otherWavPath;
+    public static List<KeyValuePair<string, float>> eventList = new List<KeyValuePair<string, float>>();
 
     public override void OnDeinitializeMelon()
     {
         _popup?.Dispose();
         _popup = null;
+        ExternalSfxPlayer.DestroyAudioRoot();
     }
 
     public override void OnInitializeMelon()
@@ -55,9 +56,10 @@ public class ModEntry : MelonMod
 
         string modDllPath = Assembly.GetExecutingAssembly().Location;
         string modFolder = Path.GetDirectoryName(modDllPath);
-        string soundFolder = Path.Combine(modFolder, "Sounds");
         string resFolder = Path.Combine(modFolder, "res");
 
+        // 自动拾取音效
+        string soundFolder = Path.Combine(modFolder, "Sounds");
         PickSoundPaths.Clear();
         if (Directory.Exists(soundFolder))
         {
@@ -73,8 +75,7 @@ public class ModEntry : MelonMod
             _log.Warning($"[AutoCollect] Sounds文件夹不存在：{soundFolder}");
         }
 
-        // 新增：放置音效
-        // 在 OnInitializeMelon 里面，读取植物音效文件夹
+        // 放置音效
         string plantSoundFolder = Path.Combine(modFolder, "Sounds", "Plant");
         PlantSoundPaths.Clear();
         if (Directory.Exists(plantSoundFolder))
@@ -91,13 +92,31 @@ public class ModEntry : MelonMod
             _log.Warning($"[AutoCollect] Sounds/Plant文件夹不存在：{plantSoundFolder}");
         }
 
-        _log.Msg($"[AutoCollect] 音效加载完成，可用数量：{PickSoundPaths.Count}");
-        _log.Msg($"[AutoCollect] 目标玩家 = {(_targetPlayer == 0 ? "玩家1" : "玩家2")}  (按 F9 或点左上角按钮切换)");
+        // 其他音效
+        List<string> allAudioFile = new List<string>();
+        string otherSoundFolder = Path.Combine(modFolder, "Sounds", "Other");
+        if (Directory.Exists(otherSoundFolder))
+        {
+            string[] otherWavFiles = Directory.GetFiles(otherSoundFolder, "*.wav");
+            _log.Msg($"[AutoCollect] 找到 {otherWavFiles.Length} 个其他音效");
+            foreach (var fpath in otherWavFiles)
+            {
+                allAudioFile.Add(fpath);
+            }
+        }
+        else
+        {
+            _log.Warning($"[AutoCollect] Sounds/Other文件夹不存在：{otherSoundFolder}");
+        }
+        allAudioFile = allAudioFile.Union(PickSoundPaths).ToList();
+        allAudioFile = allAudioFile.Union(PlantSoundPaths).ToList();
+        // 加载音频播放组件
+        ExternalSfxPlayer.InitAudioRoot();
+        ExternalSfxPlayer.PreLoadSamples(allAudioFile);
 
         _popup = new ImagePopup();
         _popup.Init();
-
-        // 批量加载
+        // 批量加载图片资源
         _popup.LoadImages(new[]
         {
             resFolder + "\\XTT.png",
@@ -118,19 +137,20 @@ public class ModEntry : MelonMod
             resFolder + "\\bbbomb.png",
             resFolder + "\\woman.png"
         });
+
+        _log.Msg($"[AutoCollect] 目标玩家 = {(_targetPlayer == 0 ? "玩家1" : "玩家2")}  (按 F9 或点左上角按钮切换)");
     }
 
-    /// <summary>随机播放外部wav，Windows winmm异步播放，无3D空间音效</summary>
+    /// <summary>随机播放外部wav</summary>
     public static void PlayRandomPickSound(Vector3 pos, float volume = 0.7f)
     {
         if (PickSoundPaths == null || PickSoundPaths.Count == 0) return;
-        if (Time.time - LastSoundTime < SoundCooldown) return;
+        if (!TimeManager.GetCanAction("MainSound", 5f)) return;
 
         int randomIdx = UnityEngine.Random.Range(0, PickSoundPaths.Count);
         string wavPath = PickSoundPaths[randomIdx];
 
-        LastSoundTime = Time.time;
-        WinmmSound.PlayWavFile(wavPath);
+        ExternalSfxPlayer.PlayWav(wavPath);
         string pattern = @"[^\\/]+$";
         string fileName = Regex.Match(wavPath, pattern).Value;
         switch (fileName)
@@ -166,13 +186,12 @@ public class ModEntry : MelonMod
     public static void PlayPlantPlaceSound()
     {
         if (PlantSoundPaths == null || PlantSoundPaths.Count == 0) return;
-        if (Time.time - LastSoundTime < SoundCooldown) return;
+        if (!TimeManager.GetCanAction("MainSound", 5f)) return;
 
         int idx = UnityEngine.Random.Range(0, PlantSoundPaths.Count);
         string path = PlantSoundPaths[idx];
 
-        LastSoundTime = Time.time;
-        WinmmSound.PlayWavFile(path);
+        ExternalSfxPlayer.PlayWav(path);
         // 显示动画
         string pattern = @"[^\\/]+$";
         string fileName = Regex.Match(path, pattern).Value;
@@ -193,21 +212,37 @@ public class ModEntry : MelonMod
     public override void OnUpdate()
     {
         _popup?.Update();
-        // if (Input.GetKeyDown(KeyCode.T)) OnGameWinSc();
         if (Input.GetKeyDown(KeyCode.F9))
         {
             ToggleTarget();
+        }
+        // 延迟事件列表
+        if (depositBoard != null)
+        {
+            for (int i = eventList.Count - 1; i >= 0; i--)
+            {
+                if (eventList[i].Value >= Time.time)
+                {
+                    OnDelayEvent(eventList[i].Key);
+                    eventList.RemoveAt(i);
+                }
+            }
+        }
+    }
+
+    public static void OnDelayEvent(string key)
+    {
+        if (key == "old-lady" && TimeManager.GetCanAction("OldLadySound", 0.1f))
+        {
+            PlayOtherSoundByFile("yoooo.wav");
         }
     }
 
     public static void OnGameWinSc()
     {
         _popup?.PlaySequence(11, 640, 360, 34, 0.1f);
-        string modDllPath = Assembly.GetExecutingAssembly().Location;
-        string modFolder = Path.GetDirectoryName(modDllPath);
-        string winWaveFile = Path.Combine(modFolder, "Sounds", "Other\\pvz_ohhhh.wav");
-        WinmmSound.PlayWavFile(winWaveFile);
-        LastSoundTime = Time.time;
+        PlayOtherSoundByFile("pvz_ohhhh.wav");
+        TimeManager.ResetCooldown("MainSound", 5f);
     }
 
     public static void setGameWinState(bool isWon)
@@ -221,61 +256,59 @@ public class ModEntry : MelonMod
 
     public static void selfDestruct(float x, float y)
     {
-        if (Time.time - LastBombTime < 0.5f) return;
-        LastBombTime = Time.time;
+        if (!TimeManager.GetCanAction("SelfDestructSound", 0.5f)) return;
         _popup?.ShowAt(12, x, y);
-        string modDllPath = Assembly.GetExecutingAssembly().Location;
-        string modFolder = Path.GetDirectoryName(modDllPath);
-        string winWaveFile = Path.Combine(modFolder, "Sounds", "Other\\Complete.wav");
-        WinmmSound.PlayWavFile(winWaveFile);
-        LastSoundTime = Time.time;
+        PlayOtherSoundByFile("Complete.wav");
     }
 
     public static void kleeBomb(float x, float y)
     {
-        if (Time.time - LastBombTime < 0.5f) return;
-        LastBombTime = Time.time;
+        if (!TimeManager.GetCanAction("KleeBombSound", 0.5f)) return;
         _popup?.ShowAt(13, x, y);
-        string modDllPath = Assembly.GetExecutingAssembly().Location;
-        string modFolder = Path.GetDirectoryName(modDllPath);
-        string winWaveFile = Path.Combine(modFolder, "Sounds", "Other\\bbbomb.wav");
-        WinmmSound.PlayWavFile(winWaveFile);
-        LastSoundTime = Time.time;
+        PlayOtherSoundByFile("bbbomb.wav");
     }
 
     public static void kleeBomb()
     {
-        if (Time.time - LastBombTime < 0.5f) return;
-        LastBombTime = Time.time;
+        if (!TimeManager.GetCanAction("KleeBombSound", 0.5f)) return;
         _popup?.Show(13);
-        string modDllPath = Assembly.GetExecutingAssembly().Location;
-        string modFolder = Path.GetDirectoryName(modDllPath);
-        string winWaveFile = Path.Combine(modFolder, "Sounds", "Other\\bbbomb.wav");
-        WinmmSound.PlayWavFile(winWaveFile);
-        LastSoundTime = Time.time;
+        PlayOtherSoundByFile("bbbomb.wav");
     }
 
     public static void showWoman(float x, float y)
     {
-        if (Time.time - LastBombTime < 0.5f) return;
-        LastBombTime = Time.time;
+        if (!TimeManager.GetCanAction("WomanSound", 1f)) return;
         _popup?.ShowAt(14, x, y);
-        string modDllPath = Assembly.GetExecutingAssembly().Location;
-        string modFolder = Path.GetDirectoryName(modDllPath);
-        string winWaveFile = Path.Combine(modFolder, "Sounds", "Other\\wow.wav");
-        WinmmSound.PlayWavFile(winWaveFile);
-        LastSoundTime = Time.time;
+        PlayOtherSoundByFile("wow.wav");
     }
 
     public static void squash()
     {
-        if (Time.time - LastBombTime < 0.5f) return;
-        LastBombTime = Time.time;
-        string modDllPath = Assembly.GetExecutingAssembly().Location;
-        string modFolder = Path.GetDirectoryName(modDllPath);
-        string winWaveFile = Path.Combine(modFolder, "Sounds", "Other\\spmf.wav");
-        WinmmSound.PlayWavFile(winWaveFile);
-        LastSoundTime = Time.time;
+        if (!TimeManager.GetCanAction("SquashSound", 0.5f)) return;
+        PlayOtherSoundByFile("spmf.wav");
+    }
+
+    public static void tanglekelp()
+    {
+        if (!TimeManager.GetCanAction("TanglekelpSound", 0.5f)) return;
+        PlayOtherSoundByFile("water.wav");
+    }
+
+    public static void cattail()
+    {
+        if (!TimeManager.GetCanAction("CattailSound", 0.5f)) return;
+        PlayOtherSoundByFile("mwc.wav");
+    }
+
+    public static void PlayOtherSoundByFile(string path)
+    {
+        if (otherWavPath == null)
+        {
+            string modDllPath = Assembly.GetExecutingAssembly().Location;
+            string modFolder = Path.GetDirectoryName(modDllPath);
+            otherWavPath = Path.Combine(modFolder, "Sounds", "Other");
+        }
+        ExternalSfxPlayer.PlayWav(otherWavPath + "\\" + path);
     }
 
     public override void OnGUI()

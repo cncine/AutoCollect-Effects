@@ -57,6 +57,9 @@
 		<HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.UI.dll</HintPath>
 		<Private>False</Private>
 	</Reference>
+	<Reference Include="UnityEngine.AudioModule">
+		<HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.AudioModule.dll</HintPath>
+	</Reference>
   </ItemGroup>
 
 </Project>
