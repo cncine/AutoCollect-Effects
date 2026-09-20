@@ -12,7 +12,7 @@ using ImagePopupMod;
 using System.Text.RegularExpressions;
 using Il2CppReloaded.Gameplay;
 
-[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "1.0.3", "XSC")]
+[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "1.0.4", "XSC")]
 namespace AutoCollect;
 public class ModEntry : MelonMod
 {
@@ -263,6 +263,17 @@ public class ModEntry : MelonMod
         string modDllPath = Assembly.GetExecutingAssembly().Location;
         string modFolder = Path.GetDirectoryName(modDllPath);
         string winWaveFile = Path.Combine(modFolder, "Sounds", "Other\\wow.wav");
+        WinmmSound.PlayWavFile(winWaveFile);
+        LastSoundTime = Time.time;
+    }
+
+    public static void squash()
+    {
+        if (Time.time - LastBombTime < 0.5f) return;
+        LastBombTime = Time.time;
+        string modDllPath = Assembly.GetExecutingAssembly().Location;
+        string modFolder = Path.GetDirectoryName(modDllPath);
+        string winWaveFile = Path.Combine(modFolder, "Sounds", "Other\\spmf.wav");
         WinmmSound.PlayWavFile(winWaveFile);
         LastSoundTime = Time.time;
     }

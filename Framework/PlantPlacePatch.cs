@@ -113,3 +113,23 @@ public class ZombieEatPlantPatch
         }
     }
 }
+
+[HarmonyPatch(typeof(Plant), nameof(Plant.UpdateSquash))]
+public class PlantUpdateSquashPatch
+{
+    static void Postfix(Plant __instance)
+    {
+        if (__instance == null) return;
+        if (__instance.mSeedType != SeedType.Squash) return;
+
+        PlantState plantsState = __instance.mState;
+        int cd = __instance.mStateCountdown;
+        if (plantsState == PlantState.SquashLook && cd == 80)
+        {
+            // 窝瓜发现敌人
+            int col = __instance.mPlantCol;
+            int row = __instance.mStartRow;
+            ModEntry.squash();
+        }
+    }
+}
