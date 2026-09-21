@@ -93,10 +93,10 @@ public static class PlantAction
 }
 
 // 放置钩子
-[HarmonyPatch(typeof(Board), nameof(Board.AddPlant), new[] { typeof(int), typeof(int), typeof(SeedType), typeof(SeedType) })]
+[HarmonyPatch(typeof(Board), nameof(Board.AddPlant))]
 public class PlantPlacePatch
 {
-    static void Postfix(Plant __result, Board __instance, int __0, int __1, SeedType __2, SeedType __3)
+    static void Postfix(Board __instance, int __0, int __1, SeedType __2, Plant __result)
     {
         // __result != null = 植物成功添加到棋盘（放置成功）
         if (__result == null)
