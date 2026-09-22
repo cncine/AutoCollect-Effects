@@ -6,6 +6,7 @@ using System.Text;
 using UnityEngine;
 using System.Reflection;
 using MelonLoader;
+using System.Runtime.CompilerServices;
 
 // MelonLogger.Msg();
 // 植物行为
@@ -19,7 +20,7 @@ public static class PlantAction
         if (projectile.mProjectileType != ProjectileType.Butter) return;
 
         // 老太太叫
-        ModEntry.eventList.Add(new KeyValuePair<string, float>("old-lady", Time.time + 1f));
+        ModEntry.eventList.Add(new KeyValuePair<string, float>("old-lady", Time.time));// 暂时关闭延迟
 
     }
     public static void Tanglekelp(Plant thePlant)
@@ -153,6 +154,9 @@ public class BoardPatchClass
     static void InitLevel(Board __instance)
     {
         ModEntry.depositBoard = __instance;
+        // 保护和复位
+        SC_Tools.TimeManager.ResetCooldown("GameWin", 0.1f);
+        ModEntry.zombieWaveNum = 1;
     }
 
     [HarmonyPatch("DisposeBoard")]
@@ -198,5 +202,53 @@ public class bulletPatch
     static void Postfix(Projectile __result)
     {
         PlantAction.Kernelpult(__result);
+    }
+}
+
+// 玉米加农炮发射
+[HarmonyPatch(typeof(Plant), nameof(Plant.CobCannonFire))]
+public static class CobCannonFirePatch
+{
+    static void Postfix(Plant __instance, int theTargetX, int theTargetY)
+    {
+        // 校验一下，确保是玉米加农炮，避免其他植物同名方法（安全判断）
+        if (__instance.mSeedType == SeedType.Cobcannon)
+        {
+            ModEntry.song1();
+        }
+    }
+}
+
+// 小推车触发
+[HarmonyPatch(typeof(LawnMower), nameof(LawnMower.Update))]
+public static class LawnMowerUpdatePatch
+{
+    private static readonly ConditionalWeakTable<LawnMower, StateHolder> _states = new();
+
+    private class StateHolder
+    {
+        public LawnMowerState LastState;
+    }
+    static void Postfix(LawnMower __instance)
+    {
+        LawnMowerState current = __instance.mMowerState;
+
+        if (!_states.TryGetValue(__instance, out var holder))
+        {
+            // 第一次见到，记录初始状态
+            _states.Add(__instance, new StateHolder { LastState = current });
+            return;
+        }
+
+        if (current != holder.LastState)
+        {
+            var last = holder.LastState;
+            holder.LastState = current;
+
+            if (last == LawnMowerState.Ready && current == LawnMowerState.Triggered)
+            {
+                ModEntry.mabaoguo();
+            }
+        }
     }
 }

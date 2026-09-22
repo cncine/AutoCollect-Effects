@@ -7,355 +7,261 @@ using UnityEngine.UI;
 
 namespace ImagePopupMod
 {
-	/// <summary>
-	/// 普通类，不继承 MelonMod。由外部类调用 Init / LoadImages / Show。
-	/// 常驻 Canvas，每张纹理对应一个常驻 RawImage 槽位，防止纹理随场景卸载。
-	/// </summary>
-	public class ImagePopup
-	{
-		// ---- 动画参数 ----
-		private const float FadeTime = 0.2f;
-		private const float HoldTime = 1f;
+    public class ImagePopup
+    {
+        // ---- 常量 ----
+        private const float DefaultFadeTime = 0.2f;
+        private const float DefaultHoldTime = 1f;
+        private const float DefaultTargetSizeDiv = 3f;
 
-		private enum AnimState { Idle, FadeIn, Hold, FadeOut }
+        // ---- 内部状态 ----
+        private Canvas _canvas;
+        private GameObject _canvasObj;
+        private GameObject _flashCanvasObj;   // Flash 专用 Canvas（层级更低）
+        private bool _initialized;
 
-		// ---- 内部状态 ----
-		private Canvas _canvas;
-		private GameObject _canvasObj;
-		private bool _initialized;
+        private readonly List<Texture2D> _textures = new();
+        private readonly List<RawImage> _slots = new();
 
-		private readonly List<Texture2D> _textures = new();
-		private readonly List<RawImage> _slots = new();   // 每张纹理一个常驻槽位
+        // 正在播放的实例
+        private readonly List<PopupInstance> _instances = new();
+        private readonly List<SequenceInstance> _sequences = new();
+        private readonly List<FlashInstance> _flashes = new();
 
-		private RawImage _activeSlot;   // 当前正在显示的槽位
+        private float TargetSize(float div) => Mathf.Min(Screen.width, Screen.height) / div;
 
-		private AnimState _animState = AnimState.Idle;
-		private float _alpha;
-		private float _timer;
-
-		// 屏幕尺寸的 1/3 作为最长边
-		private float TargetSize => Mathf.Min(Screen.width, Screen.height) / 3f;
-
-        // ---- 帧动画状态 ----
-        private RawImage _seqSlot;              // 专门用于帧序列的槽位
-        private Texture2D _seqTex;
-        private int _seqFrameW, _seqFrameH;     // 单帧像素尺寸
-        private int _seqCols, _seqRows;         // 大图的行列数
-        private int _seqTotalFrames;            // 总帧数
-        private int _seqCurrentFrame;
-        private float _seqFrameDelay;           // 每帧延迟秒
-        private float _seqTimer;
-        private bool _seqPlaying;
-
-        /// <summary>
-        /// 初始化 Canvas。只需调用一次。Canvas 常驻，不随场景销毁。
-        /// </summary>
+        // =========================================================
+        //  初始化
+        // =========================================================
         public void Init()
-		{
-			if (_initialized) return;
-			_initialized = true;
+        {
+            if (_initialized) return;
+            _initialized = true;
 
-			_canvasObj = new GameObject("SC-Pictures_Canvas");
-			_canvas = _canvasObj.AddComponent<Canvas>();
-			_canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-			_canvas.sortingOrder = 32001;
-			_canvasObj.AddComponent<CanvasScaler>();
-			// 不需要 GraphicRaycaster，因为图片不交互
+            _canvasObj = new GameObject("SC-Pictures_Canvas");
+            _canvas = _canvasObj.AddComponent<Canvas>();
+            _canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            _canvas.sortingOrder = 32001;
+            _canvasObj.AddComponent<CanvasScaler>();
 
-			UnityEngine.Object.DontDestroyOnLoad(_canvasObj);
-		}
+            UnityEngine.Object.DontDestroyOnLoad(_canvasObj);
+        }
 
-		/// <summary>
-		/// 批量加载图片。每张成功加载的纹理会创建一个常驻槽位。
-		/// 返回成功加载的数量。
-		/// </summary>
-		public int LoadImages(IEnumerable<string> filePaths)
-		{
-			Init();
+        private void EnsureFlashCanvas()
+        {
+            if (_flashCanvasObj != null) return;
 
-			// 清掉旧的槽位和纹理
-			ReleaseAll();
+            _flashCanvasObj = new GameObject("SC-Pictures_FlashCanvas");
+            var fc = _flashCanvasObj.AddComponent<Canvas>();
+            fc.renderMode = RenderMode.ScreenSpaceOverlay;
+            fc.sortingOrder = 32000;   // 主 Canvas 是 32001，低一层
+            _flashCanvasObj.AddComponent<CanvasScaler>();
 
-			int ok = 0;
-			foreach (var path in filePaths)
-			{
-				var tex = LoadSingleTexture(path);
-				if (tex == null) continue;
+            UnityEngine.Object.DontDestroyOnLoad(_flashCanvasObj);
+        }
 
-				_textures.Add(tex);
-				_slots.Add(CreateSlot(tex));
-				ok++;
-			}
+        // =========================================================
+        //  加载纹理
+        // =========================================================
+        public int LoadImages(IEnumerable<string> filePaths)
+        {
+            Init();
+            ReleaseAll();
 
-			MelonLogger.Msg($"🖼️ 已加载 {ok} 张图片");
-			return ok;
-		}
-
-		/// <summary>
-		/// 为一张纹理创建一个常驻 RawImage 槽位。默认隐藏。
-		/// 槽位的 texture 字段始终持有纹理引用，防止纹理被场景卸载。
-		/// </summary>
-		private RawImage CreateSlot(Texture2D tex)
-		{
-			var obj = new GameObject("Slot_" + tex.name);
-			obj.transform.SetParent(_canvasObj.transform, false);
-
-			var img = obj.AddComponent<RawImage>();
-			img.raycastTarget = false;
-			img.texture = tex;
-			img.color = new Color(1, 1, 1, 0);
-			img.enabled = false;
-
-			var rect = obj.GetComponent<RectTransform>();
-			rect.anchorMin = new Vector2(0.5f, 0.5f);
-			rect.anchorMax = new Vector2(0.5f, 0.5f);
-			rect.pivot = new Vector2(0.5f, 0.5f);
-			rect.anchoredPosition = Vector2.zero;
-
-			return img;
-		}
-
-		/// <summary>
-		/// 加载单张图片，失败返回 null。
-		/// </summary>
-		private Texture2D LoadSingleTexture(string filePath)
-		{
-			if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
-			{
-				MelonLogger.Error($"❌ 图片不存在：{filePath}");
-				return null;
-			}
-
-			try
-			{
-				byte[] bytes = File.ReadAllBytes(filePath);
-				var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-				tex.name = Path.GetFileName(filePath);
-
-				if (!tex.LoadImage(bytes))
-				{
-					MelonLogger.Error($"❌ 解析失败：{filePath}");
-					UnityEngine.Object.Destroy(tex);
-					return null;
-				}
-
-				tex.filterMode = FilterMode.Point;
-				return tex;
-			}
-			catch (Exception ex)
-			{
-				MelonLogger.Error($"❌ 加载异常 {filePath}: {ex.Message}");
-				return null;
-			}
-		}
-
-		/// <summary>
-		/// 显示指定索引的图片。隐藏其他槽位，激活目标槽位。
-		/// 缩放到屏幕 1/3 并保持比例，中心跟随鼠标，重新触发淡入淡出。
-		/// </summary>
-		public void Show(int index)
-		{
-			Init();
-
-			if (index < 0 || index >= _slots.Count)
-			{
-				MelonLogger.Warning($"⚠️ 图片索引越界：{index}（共 {_slots.Count} 张）");
-				return;
-			}
-
-			var tex = _textures[index];
-			var slot = _slots[index];
-			if (tex == null || slot == null) return;
-
-			// 隐藏其他槽位
-			for (int i = 0; i < _slots.Count; i++)
-			{
-				if (_slots[i] != null) _slots[i].enabled = false;
-			}
-
-			// 激活目标槽位
-			slot.enabled = true;
-			slot.texture = tex;
-			_activeSlot = slot;
-
-			ApplySizeAndPosition(slot, tex);
-
-			// 重启动画
-			_animState = AnimState.FadeIn;
-			_timer = 0f;
-			_alpha = 0f;
-			slot.color = new Color(1, 1, 1, 0);
-		}
-
-		/// <summary>
-		/// 根据纹理尺寸和鼠标位置，设置槽位大小和位置。
-		/// </summary>
-		private void ApplySizeAndPosition(RawImage slot, Texture2D tex)
-		{
-			if (slot == null || tex == null) return;
-
-			var rect = slot.rectTransform;
-
-			// 保持比例，最长边 = 屏幕 1/3
-			float aspect = (float)tex.width / tex.height;
-			float w, h;
-			if (tex.width >= tex.height)
-			{
-				w = TargetSize;
-				h = TargetSize / aspect;
-			}
-			else
-			{
-				h = TargetSize;
-				w = TargetSize * aspect;
-			}
-			rect.sizeDelta = new Vector2(w, h);
-
-			// 中心跟随鼠标
-			Vector2 mouse = Input.mousePosition;
-			rect.anchoredPosition = new Vector2(
-				mouse.x - Screen.width * 0.5f,
-				mouse.y - Screen.height * 0.5f);
-		}
-
-		/// <summary>
-		/// 每帧调用，驱动动画。外部类在自己的 OnUpdate 里转发即可。
-		/// </summary>
-		public void Update()
-		{
-            // 帧序列动画
-            if (_seqPlaying && _seqSlot != null)
+            int ok = 0;
+            foreach (var path in filePaths)
             {
-                _seqTimer += Time.deltaTime;
-                if (_seqTimer >= _seqFrameDelay)
-                {
-                    _seqTimer -= _seqFrameDelay;
-                    _seqCurrentFrame++;
-                    if (_seqCurrentFrame >= _seqTotalFrames)
-                    {
-                        _seqPlaying = false;
-                        _seqSlot.enabled = false;
-                    }
-                    else
-                    {
-                        ApplySequenceUv();
-                    }
-                }
+                var tex = LoadSingleTexture(path);
+                if (tex == null) continue;
+                _textures.Add(tex);
+                _slots.Add(CreateSlot(tex));
+                ok++;
             }
 
-            if (!_initialized || _animState == AnimState.Idle) return;
-			if (_activeSlot == null) return;
+            MelonLogger.Msg($"🖼️ 已加载 {ok} 张图片");
+            return ok;
+        }
 
-			_timer += Time.deltaTime;
-
-			switch (_animState)
-			{
-				case AnimState.FadeIn:
-					_alpha = Mathf.Clamp01(_timer / FadeTime);
-					if (_timer >= FadeTime)
-					{
-						_animState = AnimState.Hold;
-						_timer = 0f;
-					}
-					break;
-
-				case AnimState.Hold:
-					_alpha = 1f;
-					if (_timer >= HoldTime)
-					{
-						_animState = AnimState.FadeOut;
-						_timer = 0f;
-					}
-					break;
-
-				case AnimState.FadeOut:
-					_alpha = 1 - Mathf.Clamp01(_timer / FadeTime);
-					if (_timer >= FadeTime)
-					{
-						_animState = AnimState.Idle;
-						_alpha = 0f;
-						// 动画结束，隐藏槽位
-						if (_activeSlot != null) _activeSlot.enabled = false;
-						_activeSlot = null;
-					}
-					break;
-			}
-
-			if (_activeSlot != null)
-				_activeSlot.color = new Color(1, 1, 1, _alpha);
-		}
-
-		/// <summary>
-		/// 释放所有纹理和 UI。外部类在卸载时调用。
-		/// </summary>
-		public void Dispose()
-		{
-			ReleaseAll();
-
-			if (_canvasObj != null)
-			{
-				UnityEngine.Object.Destroy(_canvasObj);
-				_canvasObj = null;
-			}
-			_canvas = null;
-			_activeSlot = null;
-			_initialized = false;
-		}
-
-		/// <summary>
-		/// 清掉所有槽位和纹理。
-		/// </summary>
-		private void ReleaseAll()
-		{
-			foreach (var slot in _slots)
-			{
-				if (slot != null) UnityEngine.Object.Destroy(slot.gameObject);
-			}
-			_slots.Clear();
-
-			foreach (var tex in _textures)
-			{
-				if (tex != null) UnityEngine.Object.Destroy(tex);
-			}
-			_textures.Clear();
-
-			_activeSlot = null;
-			_animState = AnimState.Idle;
-			_alpha = 0f;
-		}
-
-        public void ShowAt(int index, float screenX, float screenY)
+        private RawImage CreateSlot(Texture2D tex)
         {
-            Show(index);
-            if (_activeSlot == null) return;
+            var obj = new GameObject("Slot_" + tex.name);
+            obj.transform.SetParent(_canvasObj.transform, false);
 
-			float xMargin = (Screen.width - 16f / 9f * Screen.height) / 2f;
-            float xSplit = (Screen.width - xMargin * 2f) / 9f;
-            float setX = xSplit * 2 + screenX / 720f * (xSplit * 5) + xMargin;
+            var img = obj.AddComponent<RawImage>();
+            img.raycastTarget = false;
+            img.texture = tex;
+            img.color = new Color(1, 1, 1, 0);
+            img.enabled = false;
 
-            float ySplit = Screen.height / 12f;
-            float setY = ySplit * 3 + screenY / 600f * (ySplit * 8);
+            var rect = obj.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = Vector2.zero;
 
-            // 你的坐标是左上角原点、Y 向下
-            // Unity 屏幕坐标是左下角原点、Y 向上，所以翻转 Y
-            float unityY = Screen.height - setY;
+            return img;
+        }
 
-            _activeSlot.rectTransform.anchoredPosition = new Vector2(
-                setX - Screen.width * 0.5f,
-                unityY - Screen.height * 0.5f);
+        private Texture2D LoadSingleTexture(string filePath)
+        {
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+            {
+                MelonLogger.Error($"❌ 图片不存在：{filePath}");
+                return null;
+            }
+
+            try
+            {
+                byte[] bytes = File.ReadAllBytes(filePath);
+                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                tex.name = Path.GetFileName(filePath);
+
+                if (!tex.LoadImage(bytes))
+                {
+                    MelonLogger.Error($"❌ 解析失败：{filePath}");
+                    UnityEngine.Object.Destroy(tex);
+                    return null;
+                }
+
+                tex.filterMode = FilterMode.Point;
+                return tex;
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"❌ 加载异常 {filePath}: {ex.Message}");
+                return null;
+            }
+        }
+
+        // =========================================================
+        //  单图显示 Show / ShowAt
+        // =========================================================
+        public void Show(int index, float fadeTime = DefaultFadeTime,
+                         float holdTime = DefaultHoldTime, float targetSizeDiv = DefaultTargetSizeDiv)
+        {
+            ShowInternal(index, null, null, fadeTime, holdTime, targetSizeDiv, null, null);
+        }
+
+        public void ShowAt(int index, float screenX, float screenY,
+                           float fadeTime = DefaultFadeTime,
+                           float holdTime = DefaultHoldTime,
+                           float targetSizeDiv = DefaultTargetSizeDiv)
+        {
+            ShowInternal(index, screenX, screenY, fadeTime, holdTime, targetSizeDiv, null, null);
         }
 
         /// <summary>
-        /// 播放全屏帧序列动画。
+        /// 带终点移动的 ShowAt。移动贯穿 FadeIn + Hold + FadeOut 全过程。
         /// </summary>
-        /// <param name="textureIndex">_textures 中的索引</param>
-        /// <param name="frameWidth">单帧宽度（像素）</param>
-        /// <param name="frameHeight">单帧高度（像素）</param>
-        /// <param name="frameCount">总帧数</param>
-        /// <param name="frameDelay">每帧延迟（秒）</param>
-        /// <param name="loop">是否循环</param>
+        public void ShowAt(int index, float screenX, float screenY,
+                           float endX, float endY,
+                           float fadeTime = DefaultFadeTime,
+                           float holdTime = DefaultHoldTime,
+                           float targetSizeDiv = DefaultTargetSizeDiv)
+        {
+            ShowInternal(index, screenX, screenY, fadeTime, holdTime, targetSizeDiv, endX, endY);
+        }
+
+        private void ShowInternal(int index, float? startX, float? startY,
+                                  float fadeTime, float holdTime, float targetSizeDiv,
+                                  float? endX, float? endY)
+        {
+            Init();
+
+            if (index < 0 || index >= _textures.Count)
+            {
+                MelonLogger.Warning($"⚠️ 图片索引越界：{index}");
+                return;
+            }
+
+            var tex = _textures[index];
+            if (tex == null) return;
+
+            var slot = CreateSlot(tex);
+            slot.enabled = true;
+            slot.texture = tex;
+            slot.color = new Color(1, 1, 1, 0);
+
+            ApplySize(slot, tex, targetSizeDiv);
+
+            Vector2 startPos;
+            if (startX.HasValue && startY.HasValue)
+            {
+                startPos = LogicalToAnchored(startX.Value, startY.Value);
+                slot.rectTransform.anchoredPosition = startPos;
+            }
+            else
+            {
+                Vector2 mouse = Input.mousePosition;
+                startPos = new Vector2(mouse.x - Screen.width * 0.5f,
+                                       mouse.y - Screen.height * 0.5f);
+                slot.rectTransform.anchoredPosition = startPos;
+            }
+
+            var inst = new PopupInstance
+            {
+                Slot = slot,
+                FadeTime = fadeTime,
+                HoldTime = holdTime,
+                Alpha = 0f,
+                Timer = 0f,
+                TotalElapsed = 0f,
+                State = AnimState.FadeIn,
+            };
+
+            if (endX.HasValue && endY.HasValue)
+            {
+                inst.StartPos = startPos;
+                inst.EndPos = LogicalToAnchored(endX.Value, endY.Value);
+                inst.HasMove = true;
+            }
+
+            _instances.Add(inst);
+        }
+
+        // =========================================================
+        //  帧序列 PlaySequence / PlaySequenceAt
+        // =========================================================
+        /// <summary>
+        /// 播放帧序列。targetSizeDiv 不传（0）时全屏。
+        /// </summary>
         public void PlaySequence(int textureIndex, int frameWidth, int frameHeight,
-                                 int frameCount, float frameDelay, bool loop = false)
+                                 int frameCount, float frameDelay, bool loop = false,
+                                 float targetSizeDiv = 0f)
+        {
+            PlaySequenceInternal(textureIndex, frameWidth, frameHeight, frameCount,
+                                 frameDelay, loop, null, null, targetSizeDiv, null, null);
+        }
+
+        public void PlaySequenceAt(int textureIndex, int frameWidth, int frameHeight,
+                                   int frameCount, float frameDelay,
+                                   float screenX, float screenY,
+                                   bool loop = false,
+                                   float targetSizeDiv = DefaultTargetSizeDiv)
+        {
+            PlaySequenceInternal(textureIndex, frameWidth, frameHeight, frameCount,
+                                 frameDelay, loop, screenX, screenY, targetSizeDiv, null, null);
+        }
+
+        /// <summary>
+        /// 带终点移动的 PlaySequenceAt。移动贯穿整个帧序列播放过程。
+        /// </summary>
+        public void PlaySequenceAt(int textureIndex, int frameWidth, int frameHeight,
+                                   int frameCount, float frameDelay,
+                                   float screenX, float screenY,
+                                   float endX, float endY,
+                                   bool loop = false,
+                                   float targetSizeDiv = DefaultTargetSizeDiv)
+        {
+            PlaySequenceInternal(textureIndex, frameWidth, frameHeight, frameCount,
+                                 frameDelay, loop, screenX, screenY, targetSizeDiv, endX, endY);
+        }
+
+        private void PlaySequenceInternal(int textureIndex, int frameWidth, int frameHeight,
+                                  int frameCount, float frameDelay, bool loop,
+                                  float? screenX, float? screenY,
+                                  float targetSizeDiv,
+                                  float? endX, float? endY)
         {
             Init();
 
@@ -368,58 +274,409 @@ namespace ImagePopupMod
             var tex = _textures[textureIndex];
             if (tex == null) return;
 
-            // 隐藏其他槽位
-            for (int i = 0; i < _slots.Count; i++)
-                if (_slots[i] != null) _slots[i].enabled = false;
+            var obj = new GameObject("SeqSlot");
+            obj.transform.SetParent(_canvasObj.transform, false);
+            var slot = obj.AddComponent<RawImage>();
+            slot.raycastTarget = false;
+            slot.texture = tex;
+            slot.color = Color.white;
 
-            // 创建或复用一个全屏槽位
-            if (_seqSlot == null)
+            var rect = obj.GetComponent<RectTransform>();
+            bool isFullscreen = targetSizeDiv <= 0f;
+
+            Vector2 startPos = Vector2.zero;
+
+            if (isFullscreen)
             {
-                var obj = new GameObject("SequenceSlot");
-                obj.transform.SetParent(_canvasObj.transform, false);
-                _seqSlot = obj.AddComponent<RawImage>();
-                _seqSlot.raycastTarget = false;
-
-                var rect = obj.GetComponent<RectTransform>();
-                rect.anchorMin = Vector2.zero;
-                rect.anchorMax = Vector2.one;
+                // 全屏：铺满 Canvas
+                rect.anchorMin = Vector2.zero;   // (0, 0)
+                rect.anchorMax = Vector2.one;    // (1, 1)
                 rect.pivot = new Vector2(0.5f, 0.5f);
                 rect.anchoredPosition = Vector2.zero;
-                rect.sizeDelta = Vector2.zero;   // 铺满父级（Canvas）
+                rect.sizeDelta = Vector2.zero;
+            }
+            else
+            {
+                rect.anchorMin = new Vector2(0.5f, 0.5f);
+                rect.anchorMax = new Vector2(0.5f, 0.5f);
+                rect.pivot = new Vector2(0.5f, 0.5f);
+
+                float aspect = (float)frameWidth / frameHeight;
+                float target = TargetSize(targetSizeDiv);
+                float w, h;
+                if (frameWidth >= frameHeight) { w = target; h = target / aspect; }
+                else { h = target; w = target * aspect; }
+                rect.sizeDelta = new Vector2(w, h);
+
+                if (screenX.HasValue && screenY.HasValue)
+                {
+                    startPos = LogicalToAnchored(screenX.Value, screenY.Value);
+                }
+                else
+                {
+                    Vector2 mouse = Input.mousePosition;
+                    startPos = new Vector2(mouse.x - Screen.width * 0.5f,
+                                           mouse.y - Screen.height * 0.5f);
+                }
+                rect.anchoredPosition = startPos;
             }
 
-            _seqSlot.enabled = true;
-            _seqSlot.texture = tex;
-            _seqSlot.color = Color.white;
+            int cols = tex.width / frameWidth;
+            int rows = tex.height / frameHeight;
 
-            _seqTex = tex;
-            _seqFrameW = frameWidth;
-            _seqFrameH = frameHeight;
-            _seqCols = tex.width / frameWidth;
-            _seqRows = tex.height / frameHeight;
-            _seqTotalFrames = Mathf.Min(frameCount, _seqCols * _seqRows);
-            _seqFrameDelay = frameDelay;
-            _seqCurrentFrame = 0;
-            _seqTimer = 0f;
-            _seqPlaying = true;
+            var seq = new SequenceInstance
+            {
+                Slot = slot,
+                FrameW = frameWidth,
+                FrameH = frameHeight,
+                Cols = cols,
+                Rows = rows,
+                TotalFrames = Mathf.Min(frameCount, cols * rows),
+                FrameDelay = frameDelay,
+                CurrentFrame = 0,
+                Timer = 0f,
+                TotalElapsed = 0f,
+                Playing = true,
+                Loop = loop,
+                IsFullscreen = isFullscreen,
+                StartPos = startPos,
+            };
 
-            ApplySequenceUv();
+            if (endX.HasValue && endY.HasValue)
+            {
+                seq.EndPos = LogicalToAnchored(endX.Value, endY.Value);
+                seq.HasMove = true;
+            }
+
+            _sequences.Add(seq);
+            ApplySequenceUv(seq);
         }
 
-        private void ApplySequenceUv()
+        private void ApplySequenceUv(SequenceInstance seq)
         {
-            if (_seqSlot == null || _seqTex == null) return;
+            if (seq?.Slot == null) return;
+            int col = seq.CurrentFrame % seq.Cols;
+            int row = seq.CurrentFrame / seq.Cols;
 
-            int col = _seqCurrentFrame % _seqCols;
-            int row = _seqCurrentFrame / _seqCols;
+            float u = (float)col / seq.Cols;
+            float v = 1f - (float)(row + 1) / seq.Rows;
+            float w = 1f / seq.Cols;
+            float h = 1f / seq.Rows;
 
-            // uvRect 原点在左下角，行从下往上数，所以要翻转行
-            float u = (float)col / _seqCols;
-            float v = 1f - (float)(row + 1) / _seqRows;
-            float w = 1f / _seqCols;
-            float h = 1f / _seqRows;
+            seq.Slot.uvRect = new Rect(u, v, w, h);
+        }
 
-            _seqSlot.uvRect = new Rect(u, v, w, h);
+        // =========================================================
+        //  全屏纯色闪烁（独立 Canvas，层级在主 Canvas 之下）
+        // =========================================================
+        /// <summary>
+        /// 全屏纯色闪烁。colorHex 形如 "FF0000" 或 "#FF0000"。
+        /// </summary>
+        public void Flash(string colorHex,
+                          float fadeTime = 0.2f,
+                          float holdTime = 0.5f)
+        {
+            Init();
+            EnsureFlashCanvas();
+
+            Color color;
+            if (!ColorUtility.TryParseHtmlString(
+                    colorHex.StartsWith("#") ? colorHex : "#" + colorHex, out color))
+            {
+                MelonLogger.Warning($"⚠️ 无法解析颜色：{colorHex}");
+                return;
+            }
+
+            var obj = new GameObject("FlashSlot");
+            obj.transform.SetParent(_flashCanvasObj.transform, false);
+            var img = obj.AddComponent<RawImage>();
+            img.raycastTarget = false;
+            img.texture = Texture2D.whiteTexture;
+            img.color = new Color(color.r, color.g, color.b, 0f);
+
+            var rect = obj.GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = Vector2.zero;
+            rect.sizeDelta = Vector2.zero;
+
+            _flashes.Add(new FlashInstance
+            {
+                Slot = img,
+                Color = color,
+                FadeTime = fadeTime,
+                HoldTime = holdTime,
+                Alpha = 0f,
+                Timer = 0f,
+                State = AnimState.FadeIn,
+            });
+        }
+
+        // =========================================================
+        //  坐标转换
+        // =========================================================
+        private Vector2 LogicalToAnchored(float screenX, float screenY)
+        {
+            float xMargin = (Screen.width - 16f / 9f * Screen.height) / 2f;
+            float xSplit = (Screen.width - xMargin * 2f) / 9f;
+            float setX = xSplit * 2 + screenX / 720f * (xSplit * 5) + xMargin;
+
+            float ySplit = Screen.height / 12f;
+            float setY = ySplit * 3 + screenY / 600f * (ySplit * 8);
+
+            float unityY = Screen.height - setY;
+
+            return new Vector2(setX - Screen.width * 0.5f,
+                               unityY - Screen.height * 0.5f);
+        }
+
+        // =========================================================
+        //  尺寸
+        // =========================================================
+        private void ApplySize(RawImage slot, Texture2D tex, float targetSizeDiv)
+        {
+            if (slot == null || tex == null) return;
+            var rect = slot.rectTransform;
+
+            float aspect = (float)tex.width / tex.height;
+            float target = TargetSize(targetSizeDiv);
+            float w, h;
+            if (tex.width >= tex.height) { w = target; h = target / aspect; }
+            else { h = target; w = target * aspect; }
+            rect.sizeDelta = new Vector2(w, h);
+        }
+
+        // =========================================================
+        //  每帧更新
+        // =========================================================
+        public void Update()
+        {
+            if (!_initialized) return;
+            float dt = Time.deltaTime;
+
+            for (int i = _instances.Count - 1; i >= 0; i--)
+            {
+                var inst = _instances[i];
+                if (inst.Slot == null) { _instances.RemoveAt(i); continue; }
+                UpdatePopupInstance(inst, dt);
+                if (inst.State == AnimState.Idle)
+                {
+                    if (inst.Slot != null) UnityEngine.Object.Destroy(inst.Slot.gameObject);
+                    _instances.RemoveAt(i);
+                }
+            }
+
+            for (int i = _sequences.Count - 1; i >= 0; i--)
+            {
+                var seq = _sequences[i];
+                if (seq.Slot == null) { _sequences.RemoveAt(i); continue; }
+                UpdateSequence(seq, dt);
+                if (!seq.Playing)
+                {
+                    if (seq.Slot != null) UnityEngine.Object.Destroy(seq.Slot.gameObject);
+                    _sequences.RemoveAt(i);
+                }
+            }
+
+            for (int i = _flashes.Count - 1; i >= 0; i--)
+            {
+                var f = _flashes[i];
+                if (f.Slot == null) { _flashes.RemoveAt(i); continue; }
+                UpdateFlash(f, dt);
+                if (f.State == AnimState.Idle)
+                {
+                    if (f.Slot != null) UnityEngine.Object.Destroy(f.Slot.gameObject);
+                    _flashes.RemoveAt(i);
+                }
+            }
+        }
+
+        private void UpdatePopupInstance(PopupInstance inst, float dt)
+        {
+            inst.Timer += dt;
+            inst.TotalElapsed += dt;
+
+            // 移动：贯穿整个生命周期
+            if (inst.HasMove && inst.Slot != null)
+            {
+                float total = inst.FadeTime * 2f + inst.HoldTime;
+                float t = total > 0f ? Mathf.Clamp01(inst.TotalElapsed / total) : 1f;
+                inst.Slot.rectTransform.anchoredPosition =
+                    Vector2.Lerp(inst.StartPos, inst.EndPos, t);
+            }
+
+            switch (inst.State)
+            {
+                case AnimState.FadeIn:
+                    inst.Alpha = Mathf.Clamp01(inst.Timer / inst.FadeTime);
+                    if (inst.Timer >= inst.FadeTime)
+                    {
+                        inst.State = AnimState.Hold;
+                        inst.Timer = 0f;
+                    }
+                    break;
+                case AnimState.Hold:
+                    inst.Alpha = 1f;
+                    if (inst.Timer >= inst.HoldTime)
+                    {
+                        inst.State = AnimState.FadeOut;
+                        inst.Timer = 0f;
+                    }
+                    break;
+                case AnimState.FadeOut:
+                    inst.Alpha = 1 - Mathf.Clamp01(inst.Timer / inst.FadeTime);
+                    if (inst.Timer >= inst.FadeTime)
+                    {
+                        inst.State = AnimState.Idle;
+                        inst.Alpha = 0f;
+                    }
+                    break;
+            }
+
+            if (inst.Slot != null)
+                inst.Slot.color = new Color(1, 1, 1, inst.Alpha);
+        }
+
+        private void UpdateSequence(SequenceInstance seq, float dt)
+        {
+            seq.TotalElapsed += dt;
+
+            // 移动：贯穿整个序列（全屏时不移动）
+            if (seq.HasMove && !seq.IsFullscreen && seq.Slot != null && seq.TotalFrames > 0)
+            {
+                float total = seq.FrameDelay * seq.TotalFrames;
+                float t = total > 0f ? Mathf.Clamp01(seq.TotalElapsed / total) : 1f;
+                seq.Slot.rectTransform.anchoredPosition =
+                    Vector2.Lerp(seq.StartPos, seq.EndPos, t);
+            }
+
+            seq.Timer += dt;
+            if (seq.Timer >= seq.FrameDelay)
+            {
+                seq.Timer -= seq.FrameDelay;
+                seq.CurrentFrame++;
+                if (seq.CurrentFrame >= seq.TotalFrames)
+                {
+                    if (seq.Loop) seq.CurrentFrame = 0;
+                    else { seq.Playing = false; return; }
+                }
+                ApplySequenceUv(seq);
+            }
+        }
+
+        private void UpdateFlash(FlashInstance f, float dt)
+        {
+            f.Timer += dt;
+            switch (f.State)
+            {
+                case AnimState.FadeIn:
+                    f.Alpha = Mathf.Clamp01(f.Timer / f.FadeTime);
+                    if (f.Timer >= f.FadeTime) { f.State = AnimState.Hold; f.Timer = 0f; }
+                    break;
+                case AnimState.Hold:
+                    f.Alpha = 1f;
+                    if (f.Timer >= f.HoldTime) { f.State = AnimState.FadeOut; f.Timer = 0f; }
+                    break;
+                case AnimState.FadeOut:
+                    f.Alpha = 1 - Mathf.Clamp01(f.Timer / f.FadeTime);
+                    if (f.Timer >= f.FadeTime) { f.State = AnimState.Idle; f.Alpha = 0f; }
+                    break;
+            }
+            if (f.Slot != null)
+                f.Slot.color = new Color(f.Color.r, f.Color.g, f.Color.b, f.Alpha);
+        }
+
+        // =========================================================
+        //  场景切换
+        // =========================================================
+        public void OnSceneChanged()
+        {
+            foreach (var inst in _instances)
+                if (inst.Slot != null) UnityEngine.Object.Destroy(inst.Slot.gameObject);
+            _instances.Clear();
+
+            foreach (var seq in _sequences)
+                if (seq.Slot != null) UnityEngine.Object.Destroy(seq.Slot.gameObject);
+            _sequences.Clear();
+
+            foreach (var f in _flashes)
+                if (f.Slot != null) UnityEngine.Object.Destroy(f.Slot.gameObject);
+            _flashes.Clear();
+        }
+
+        // =========================================================
+        //  释放
+        // =========================================================
+        public void Dispose()
+        {
+            ReleaseAll();
+
+            if (_canvasObj != null) { UnityEngine.Object.Destroy(_canvasObj); _canvasObj = null; }
+            if (_flashCanvasObj != null) { UnityEngine.Object.Destroy(_flashCanvasObj); _flashCanvasObj = null; }
+            _canvas = null;
+            _initialized = false;
+        }
+
+        private void ReleaseAll()
+        {
+            OnSceneChanged();
+
+            foreach (var slot in _slots)
+                if (slot != null) UnityEngine.Object.Destroy(slot.gameObject);
+            _slots.Clear();
+
+            foreach (var tex in _textures)
+                if (tex != null) UnityEngine.Object.Destroy(tex);
+            _textures.Clear();
+        }
+
+        // =========================================================
+        //  内部数据结构
+        // =========================================================
+        private enum AnimState { Idle, FadeIn, Hold, FadeOut }
+
+        private class PopupInstance
+        {
+            public RawImage Slot;
+            public float FadeTime;
+            public float HoldTime;
+            public float Alpha;
+            public float Timer;
+            public float TotalElapsed;
+            public AnimState State;
+            public bool HasMove;
+            public Vector2 StartPos;
+            public Vector2 EndPos;
+        }
+
+        private class SequenceInstance
+        {
+            public RawImage Slot;
+            public int FrameW, FrameH;
+            public int Cols, Rows;
+            public int TotalFrames;
+            public int CurrentFrame;
+            public float FrameDelay;
+            public float Timer;
+            public float TotalElapsed;
+            public bool Playing;
+            public bool Loop;
+            public bool IsFullscreen;
+            public bool HasMove;
+            public Vector2 StartPos;
+            public Vector2 EndPos;
+        }
+
+        private class FlashInstance
+        {
+            public RawImage Slot;
+            public Color Color;
+            public float FadeTime;
+            public float HoldTime;
+            public float Alpha;
+            public float Timer;
+            public AnimState State;
         }
     }
 }

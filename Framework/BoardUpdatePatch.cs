@@ -12,6 +12,7 @@ public class BoardUpdatePatch
     {
         var board = __instance;
         ModEntry.setGameWinState(board.mLevelAwardSpawned);
+        ModEntry.setZombieWaveNum(board.mCurrentWave, board.mNumWaves, board.mHugeWaveCountDown);
         if (board.mChallenge?.mChallengeState > ChallengeState.Normal)
         {
             return;

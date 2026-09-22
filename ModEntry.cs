@@ -13,7 +13,7 @@ using System.Text.RegularExpressions;
 using Il2CppReloaded.Gameplay;
 using SC_Tools;
 
-[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "1.0.5", "XSC")]
+[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "0.62", "XSC")]
 namespace AutoCollect;
 public class ModEntry : MelonMod
 {
@@ -24,6 +24,8 @@ public class ModEntry : MelonMod
     private static MelonPreferences_Entry<int> _targetEntry;
     
     public static bool gameIsWon = false;
+    public static int zombieWaveNum;
+    public static int wavecd;
 
     // 保存wav文件完整路径
     public static List<string> PickSoundPaths = new List<string>();
@@ -39,6 +41,11 @@ public class ModEntry : MelonMod
         _popup?.Dispose();
         _popup = null;
         ExternalSfxPlayer.DestroyAudioRoot();
+    }
+
+    public override void OnSceneWasInitialized(int buildIndex, string sceneName)
+    {
+        _popup?.OnSceneChanged();
     }
 
     public override void OnInitializeMelon()
@@ -135,7 +142,8 @@ public class ModEntry : MelonMod
             resFolder + "\\bmall.png",
             resFolder + "\\jpm.png",
             resFolder + "\\bbbomb.png",
-            resFolder + "\\woman.png"
+            resFolder + "\\woman.png",
+            resFolder + "\\bomb_all.png"
         });
 
         _log.Msg($"[AutoCollect] 目标玩家 = {(_targetPlayer == 0 ? "玩家1" : "玩家2")}  (按 F9 或点左上角按钮切换)");
@@ -221,7 +229,7 @@ public class ModEntry : MelonMod
         {
             for (int i = eventList.Count - 1; i >= 0; i--)
             {
-                if (eventList[i].Value >= Time.time)
+                if (eventList[i].Value <= Time.time)
                 {
                     OnDelayEvent(eventList[i].Key);
                     eventList.RemoveAt(i);
@@ -235,6 +243,22 @@ public class ModEntry : MelonMod
         if (key == "old-lady" && TimeManager.GetCanAction("OldLadySound", 0.1f))
         {
             PlayOtherSoundByFile("yoooo.wav");
+        } else if (key.StartsWith("boom1"))
+        {
+            string pattern = @"^[^|]+\|(-?\d+(?:\.\d+)?)\|(-?\d+(?:\.\d+)?)$";
+            Match m = Regex.Match(key, pattern);
+            if (m.Success)
+            {
+                string num1 = m.Groups[1].Value;
+                string num2 = m.Groups[2].Value;
+
+                float d1 = float.Parse(num1);
+                float d2 = float.Parse(num2);
+
+                _popup?.PlaySequenceAt(15, 160, 160, 11, 0.04f, d1, d2);
+                _popup?.Flash("#FF0000", 0.05f, 0f);
+                PlayOtherSoundByFile("020.wav");
+            }
         }
     }
 
@@ -247,11 +271,31 @@ public class ModEntry : MelonMod
 
     public static void setGameWinState(bool isWon)
     {
-        if (isWon && !gameIsWon)
+        if (isWon && !gameIsWon && TimeManager.GetCanAction("GameWin", 0.1f))
         {
             OnGameWinSc();
         }
         gameIsWon = isWon;
+    }
+
+    public static void setZombieWaveNum(int cWave, int maxWave, int waveTipsCd)
+    {
+        if (zombieWaveNum != cWave)
+        {
+            if (cWave > zombieWaveNum && cWave == 1)
+            {
+                startSound();
+            }
+            zombieWaveNum = cWave;
+        }
+        if (wavecd != waveTipsCd)
+        {
+            if (waveTipsCd > wavecd && cWave >= maxWave - 1)
+            {
+                barrage();// 最后一波了，“放鞭炮”
+            }
+            wavecd = waveTipsCd;
+        }
     }
 
     public static void selfDestruct(float x, float y)
@@ -299,6 +343,36 @@ public class ModEntry : MelonMod
         if (!TimeManager.GetCanAction("CattailSound", 0.5f)) return;
         PlayOtherSoundByFile("mwc.wav");
     }
+
+    public static void mabaoguo()
+    {
+        if (!TimeManager.GetCanAction("MabaoguoSound", 0.1f)) return;
+        PlayOtherSoundByFile("mbg.wav");
+    }
+
+    public static void song1()
+    {
+        if (!TimeManager.GetCanAction("Song1Sound", 0.1f)) return;
+        PlayOtherSoundByFile("htgp.wav");
+    }
+
+    public static void barrage()
+    {
+        if (!TimeManager.GetCanAction("BarrageSound", 1f)) return;
+        for (int i = 0; i < 10; i++)
+        {
+            float boomX = 720f * UnityEngine.Random.value;
+            float boomY = 300f * UnityEngine.Random.value;
+            eventList.Add(new KeyValuePair<string, float>("boom1|" + boomX + "|" + boomY, Time.time + i * 0.1f));
+        }
+    }
+
+    public static void startSound()
+    {
+        if (!TimeManager.GetCanAction("StartSound", 1f)) return;
+        PlayOtherSoundByFile("dontcome.wav");
+    }
+
 
     public static void PlayOtherSoundByFile(string path)
     {
