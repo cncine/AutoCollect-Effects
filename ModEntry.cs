@@ -13,7 +13,7 @@ using System.Text.RegularExpressions;
 using Il2CppReloaded.Gameplay;
 using SC_Tools;
 
-[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "0.62", "XSC")]
+[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "0.63", "XSC")]
 namespace AutoCollect;
 public class ModEntry : MelonMod
 {
@@ -143,7 +143,8 @@ public class ModEntry : MelonMod
             resFolder + "\\jpm.png",
             resFolder + "\\bbbomb.png",
             resFolder + "\\woman.png",
-            resFolder + "\\bomb_all.png"
+            resFolder + "\\bomb_all.png",
+            resFolder + "\\aowalk.png"
         });
 
         _log.Msg($"[AutoCollect] 目标玩家 = {(_targetPlayer == 0 ? "玩家1" : "玩家2")}  (按 F9 或点左上角按钮切换)");
@@ -293,6 +294,9 @@ public class ModEntry : MelonMod
             if (waveTipsCd > wavecd && cWave >= maxWave - 1)
             {
                 barrage();// 最后一波了，“放鞭炮”
+            } else if (waveTipsCd > wavecd)
+            {
+                showAo();// 他来了
             }
             wavecd = waveTipsCd;
         }
@@ -371,6 +375,14 @@ public class ModEntry : MelonMod
     {
         if (!TimeManager.GetCanAction("StartSound", 1f)) return;
         PlayOtherSoundByFile("dontcome.wav");
+    }
+
+    public static void showAo()
+    {
+        if (!TimeManager.GetCanAction("Ao", 1f)) return;
+        float driftValue = UnityEngine.Random.Range(-200f, 200f);
+        _popup?.PlaySequenceAt(16, 64, 110, 4, 0.2f, 720f, 300f + driftValue, 0f, 300f + driftValue, true, 3f, 5.3f);
+        PlayOtherSoundByFile("aowalk.wav");
     }
 
 

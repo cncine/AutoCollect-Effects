@@ -224,44 +224,49 @@ namespace ImagePopupMod
         // =========================================================
         /// <summary>
         /// 播放帧序列。targetSizeDiv 不传（0）时全屏。
+        /// loop=true 时若指定 lifeTime(>0)，到时间后销毁实例。
         /// </summary>
         public void PlaySequence(int textureIndex, int frameWidth, int frameHeight,
                                  int frameCount, float frameDelay, bool loop = false,
-                                 float targetSizeDiv = 0f)
+                                 float targetSizeDiv = 0f, float lifeTime = 0f)
         {
             PlaySequenceInternal(textureIndex, frameWidth, frameHeight, frameCount,
-                                 frameDelay, loop, null, null, targetSizeDiv, null, null);
+                                 frameDelay, loop, null, null, targetSizeDiv, null, null, lifeTime);
         }
 
         public void PlaySequenceAt(int textureIndex, int frameWidth, int frameHeight,
                                    int frameCount, float frameDelay,
                                    float screenX, float screenY,
                                    bool loop = false,
-                                   float targetSizeDiv = DefaultTargetSizeDiv)
+                                   float targetSizeDiv = DefaultTargetSizeDiv,
+                                   float lifeTime = 0f)
         {
             PlaySequenceInternal(textureIndex, frameWidth, frameHeight, frameCount,
-                                 frameDelay, loop, screenX, screenY, targetSizeDiv, null, null);
+                                 frameDelay, loop, screenX, screenY, targetSizeDiv, null, null, lifeTime);
         }
 
         /// <summary>
         /// 带终点移动的 PlaySequenceAt。移动贯穿整个帧序列播放过程。
+        /// 若指定 lifeTime，移动贯穿整个生命周期。
         /// </summary>
         public void PlaySequenceAt(int textureIndex, int frameWidth, int frameHeight,
                                    int frameCount, float frameDelay,
                                    float screenX, float screenY,
                                    float endX, float endY,
                                    bool loop = false,
-                                   float targetSizeDiv = DefaultTargetSizeDiv)
+                                   float targetSizeDiv = DefaultTargetSizeDiv,
+                                   float lifeTime = 0f)
         {
             PlaySequenceInternal(textureIndex, frameWidth, frameHeight, frameCount,
-                                 frameDelay, loop, screenX, screenY, targetSizeDiv, endX, endY);
+                                 frameDelay, loop, screenX, screenY, targetSizeDiv, endX, endY, lifeTime);
         }
 
         private void PlaySequenceInternal(int textureIndex, int frameWidth, int frameHeight,
                                   int frameCount, float frameDelay, bool loop,
                                   float? screenX, float? screenY,
                                   float targetSizeDiv,
-                                  float? endX, float? endY)
+                                  float? endX, float? endY,
+                                  float lifeTime)
         {
             Init();
 
@@ -340,6 +345,7 @@ namespace ImagePopupMod
                 Loop = loop,
                 IsFullscreen = isFullscreen,
                 StartPos = startPos,
+                LifeTime = lifeTime,
             };
 
             if (endX.HasValue && endY.HasValue)
@@ -542,15 +548,30 @@ namespace ImagePopupMod
         {
             seq.TotalElapsed += dt;
 
-            // 移动：贯穿整个序列（全屏时不移动）
-            if (seq.HasMove && !seq.IsFullscreen && seq.Slot != null && seq.TotalFrames > 0)
+            // ---- 生命周期检查 ----
+            if (seq.LifeTime > 0f && seq.TotalElapsed >= seq.LifeTime)
             {
-                float total = seq.FrameDelay * seq.TotalFrames;
-                float t = total > 0f ? Mathf.Clamp01(seq.TotalElapsed / total) : 1f;
-                seq.Slot.rectTransform.anchoredPosition =
-                    Vector2.Lerp(seq.StartPos, seq.EndPos, t);
+                seq.Playing = false;
+                return;
             }
 
+            // ---- 移动 ----
+            // 优先按 LifeTime 归一化（如果指定了）；否则按帧序列总时长
+            if (seq.HasMove && !seq.IsFullscreen && seq.Slot != null)
+            {
+                float total = seq.LifeTime > 0f
+                    ? seq.LifeTime
+                    : seq.FrameDelay * seq.TotalFrames;
+
+                if (total > 0f)
+                {
+                    float t = Mathf.Clamp01(seq.TotalElapsed / total);
+                    seq.Slot.rectTransform.anchoredPosition =
+                        Vector2.Lerp(seq.StartPos, seq.EndPos, t);
+                }
+            }
+
+            // ---- 帧切换 ----
             seq.Timer += dt;
             if (seq.Timer >= seq.FrameDelay)
             {
@@ -666,6 +687,7 @@ namespace ImagePopupMod
             public bool HasMove;
             public Vector2 StartPos;
             public Vector2 EndPos;
+            public float LifeTime;   // 0 表示不限时
         }
 
         private class FlashInstance
