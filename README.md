@@ -114,10 +114,10 @@ A：不需要。本 Mod 直接基于游戏 IL2CPP 类型实现，独立运行；
 ## 免责声明
 
 本 Mod 仅供学习与交流，不附带任何游戏本体文件，亦不用于商业用途。  
-使用本 Mod 产生的任何后果由使用者自行承担。请支持正版游戏。
+使用本 Mod 产生的任何后果由使用者自行承担。请支持正版游戏。  
 本项目部分代码使用AI编写。
 
 ## 链接
-https://linux.do/
-[B站视频演示第1期](https://www.bilibili.com/video/BV19Eey6qEbu/)
+https://linux.do/  
+[B站视频演示第1期](https://www.bilibili.com/video/BV19Eey6qEbu/)  
 [B站视频演示第2期](https://www.bilibili.com/video/BV1bhhq6vErE/)
