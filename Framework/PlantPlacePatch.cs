@@ -12,6 +12,57 @@ using System.Runtime.CompilerServices;
 // 植物行为
 public static class PlantAction
 {
+    private static readonly ConditionalWeakTable<Plant, PhaseHolder> _phases = new();
+
+    private class PhaseHolder
+    {
+        public int LastPhase = -1;
+    }
+
+    public static void Tallnut(Plant thePlant)
+    {
+        // 只看高坚果
+        if (thePlant.mSeedType != SeedType.Tallnut) return;
+
+        // 死亡不触发
+        if (thePlant.mDead || thePlant.mPlantHealth <= 0) return;
+
+        int max = thePlant.mPlantMaxHealth;
+        if (max <= 0) return;
+
+        float ratio = (float)thePlant.mPlantHealth / max;
+
+        // 阶段：2=完好, 1=裂纹, 0=破损
+        int phase = ratio > 0.66f ? 2 : (ratio > 0.33f ? 1 : 0);
+
+        var holder = _phases.GetOrCreateValue(thePlant);
+
+        if (holder.LastPhase == -1)
+        {
+            holder.LastPhase = phase;
+            return;
+        }
+
+        if (phase != holder.LastPhase)
+        {
+            int last = holder.LastPhase;
+            holder.LastPhase = phase;
+
+            ModEntry.nuts();
+        }
+    }
+
+    public static void Chomper(Plant thePlant)
+    {
+        if (thePlant == null) return;
+        if (thePlant.mSeedType != SeedType.Chomper) return;
+        if (thePlant.mState != PlantState.ChomperDigesting) return;
+        int cd = thePlant.mStateCountdown;
+        if (cd == 4000)
+        {
+            ModEntry.wjz();
+        }
+    }
     public static void Kernelpult(Projectile projectile)
     {
         if (projectile == null) return;
@@ -140,6 +191,12 @@ public class PlantUpdateSpecialCountdownPatch
                 break;
             case SeedType.Tanglekelp:
                 PlantAction.Tanglekelp(__instance);
+                break;
+            case SeedType.Chomper:
+                PlantAction.Chomper(__instance);
+                break;
+            case SeedType.Tallnut:
+                PlantAction.Tallnut(__instance);
                 break;
         }
     }

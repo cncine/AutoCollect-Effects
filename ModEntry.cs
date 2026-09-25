@@ -13,7 +13,7 @@ using System.Text.RegularExpressions;
 using Il2CppReloaded.Gameplay;
 using SC_Tools;
 
-[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "0.63", "XSC")]
+[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "0.64", "XSC")]
 namespace AutoCollect;
 public class ModEntry : MelonMod
 {
@@ -144,7 +144,8 @@ public class ModEntry : MelonMod
             resFolder + "\\bbbomb.png",
             resFolder + "\\woman.png",
             resFolder + "\\bomb_all.png",
-            resFolder + "\\aowalk.png"
+            resFolder + "\\aowalk.png",
+            resFolder + "\\awei.png"
         });
 
         _log.Msg($"[AutoCollect] 目标玩家 = {(_targetPlayer == 0 ? "玩家1" : "玩家2")}  (按 F9 或点左上角按钮切换)");
@@ -214,6 +215,9 @@ public class ModEntry : MelonMod
                 break;
             case "pvz_aup3.wav":
                 _popup?.Show(2);
+                break;
+            case "pvz_aup4.wav":
+                _popup?.Show(17);
                 break;
         }
     }
@@ -383,6 +387,24 @@ public class ModEntry : MelonMod
         float driftValue = UnityEngine.Random.Range(-200f, 200f);
         _popup?.PlaySequenceAt(16, 64, 110, 4, 0.2f, 720f, 300f + driftValue, 0f, 300f + driftValue, true, 3f, 5.3f);
         PlayOtherSoundByFile("aowalk.wav");
+    }
+
+    public static void nuts()
+    {
+        if (!TimeManager.GetCanAction("NutsSound", 0.1f)) return;
+        if (UnityEngine.Random.value > 0.5f)
+        {
+            PlayOtherSoundByFile("nuts1.wav");
+        } else
+        {
+            PlayOtherSoundByFile("nuts2.wav");
+        }
+    }
+
+    public static void wjz()
+    {
+        if (!TimeManager.GetCanAction("WjzSound", 0.1f)) return;
+        PlayOtherSoundByFile("zhenxiang.wav");
     }
 
 
