@@ -1,6 +1,7 @@
 ﻿#nullable disable
 using HarmonyLib;
 using Il2CppReloaded.Gameplay;
+using Il2CppReloaded.Services;
 using AutoCollect;
 using System.Text;
 using UnityEngine;
@@ -12,6 +13,7 @@ using System.Runtime.CompilerServices;
 // 植物行为
 public static class PlantAction
 {
+    public static bool IsPeashooterFiring;
     private static readonly ConditionalWeakTable<Plant, PhaseHolder> _phases = new();
 
     private class PhaseHolder
@@ -48,7 +50,10 @@ public static class PlantAction
             int last = holder.LastPhase;
             holder.LastPhase = phase;
 
-            ModEntry.nuts();
+            if (phase == 0 || phase == 1)
+            {
+                ModEntry.nuts();
+            }
         }
     }
 
@@ -213,6 +218,8 @@ public class BoardPatchClass
         ModEntry.depositBoard = __instance;
         // 保护和复位
         SC_Tools.TimeManager.ResetCooldown("GameWin", 0.1f);
+        SC_Tools.TimeManager.ResetCooldown("Ao", 0.1f);
+        SC_Tools.TimeManager.ResetCooldown("BarrageSound", 0.1f);
         ModEntry.zombieWaveNum = 1;
     }
 
@@ -262,6 +269,18 @@ public class bulletPatch
     }
 }
 
+// 植物开火
+[HarmonyPatch(typeof(Plant), nameof(Plant.Fire))]
+public static class PeashooterFirePatch
+{
+    static void Prefix(Plant __instance)
+    {
+        // 是豌豆类
+        PlantAction.IsPeashooterFiring = (__instance.mSeedType.ToString().IndexOf("pea") + __instance.mSeedType.ToString().IndexOf("Pea")) != -2;
+    }
+    static void Postfix() => PlantAction.IsPeashooterFiring = false;
+}
+
 // 玉米加农炮发射
 [HarmonyPatch(typeof(Plant), nameof(Plant.CobCannonFire))]
 public static class CobCannonFirePatch
@@ -306,6 +325,40 @@ public static class LawnMowerUpdatePatch
             {
                 ModEntry.mabaoguo();
             }
+        }
+    }
+}
+
+// 播放声音片段
+[HarmonyPatch(typeof(AudioService), nameof(AudioService.PlayFoley), new Type[] { typeof(FoleyType) })]
+public static class PeaThrowSoundPatch
+{
+    static bool Prefix(FoleyType theFoleyType)   // 注意：Prefix，返回 bool
+    {
+        if (theFoleyType == FoleyType.Throw && PlantAction.IsPeashooterFiring)
+        {
+            ModEntry.shoot();// 射击声音
+            return false;  // 阻止原音效
+        }
+        return true;  // 其他音效正常播放
+    }
+}
+
+// 僵尸掉头
+[HarmonyPatch(typeof(Zombie), nameof(Zombie.DropHead))]
+public static class ZombieDropHeadPatch
+{
+    static void Postfix(Zombie __instance, DamageFlags theDamageFlags)
+    {
+        // 僵尸种类
+        var type = __instance.mZombieType;
+
+        // 小丑
+        if (type == ZombieType.JackInTheBox)
+        {
+            float x = __instance.mPosX;
+            float y = __instance.mPosY;
+            ModEntry.joker(x, y);
         }
     }
 }

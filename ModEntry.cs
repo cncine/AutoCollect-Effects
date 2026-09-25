@@ -13,7 +13,7 @@ using System.Text.RegularExpressions;
 using Il2CppReloaded.Gameplay;
 using SC_Tools;
 
-[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "0.64", "XSC")]
+[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "0.65", "XSC")]
 namespace AutoCollect;
 public class ModEntry : MelonMod
 {
@@ -145,7 +145,8 @@ public class ModEntry : MelonMod
             resFolder + "\\woman.png",
             resFolder + "\\bomb_all.png",
             resFolder + "\\aowalk.png",
-            resFolder + "\\awei.png"
+            resFolder + "\\awei.png",
+            resFolder + "\\joker.png"
         });
 
         _log.Msg($"[AutoCollect] 目标玩家 = {(_targetPlayer == 0 ? "玩家1" : "玩家2")}  (按 F9 或点左上角按钮切换)");
@@ -407,8 +408,20 @@ public class ModEntry : MelonMod
         PlayOtherSoundByFile("zhenxiang.wav");
     }
 
+    public static void joker(float x, float y)
+    {
+        if (!TimeManager.GetCanAction("JokerSound", 0.1f)) return;
+        _popup?.ShowAt(18, x, y);
+        PlayOtherSoundByFile("joker.wav");
+    }
 
-    public static void PlayOtherSoundByFile(string path)
+    public static void shoot()
+    {
+        if (!TimeManager.GetCanAction("ShootSound", 0.05f)) return;
+        PlayOtherSoundByFile("gun-type1.wav", 1f, 0.6f + UnityEngine.Random.value * 0.8f);
+    }
+
+    public static void PlayOtherSoundByFile(string path, float vom = 1f, float pitch = 1f)
     {
         if (otherWavPath == null)
         {
@@ -416,7 +429,7 @@ public class ModEntry : MelonMod
             string modFolder = Path.GetDirectoryName(modDllPath);
             otherWavPath = Path.Combine(modFolder, "Sounds", "Other");
         }
-        ExternalSfxPlayer.PlayWav(otherWavPath + "\\" + path);
+        ExternalSfxPlayer.PlayWav(otherWavPath + "\\" + path, vom, pitch);
     }
 
     public override void OnGUI()
