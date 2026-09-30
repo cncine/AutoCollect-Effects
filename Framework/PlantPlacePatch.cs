@@ -14,6 +14,7 @@ using System.Runtime.CompilerServices;
 public static class PlantAction
 {
     public static bool IsPeashooterFiring;
+    public static bool IsCactusFiring;
     private static readonly ConditionalWeakTable<Plant, PhaseHolder> _phases = new();
 
     private class PhaseHolder
@@ -277,8 +278,12 @@ public static class PeashooterFirePatch
     {
         // 是豌豆类
         PlantAction.IsPeashooterFiring = (__instance.mSeedType.ToString().IndexOf("pea") + __instance.mSeedType.ToString().IndexOf("Pea")) != -2;
+        PlantAction.IsCactusFiring = __instance.mSeedType == SeedType.Cactus;
     }
-    static void Postfix() => PlantAction.IsPeashooterFiring = false;
+    static void Postfix() {
+        PlantAction.IsPeashooterFiring = false;
+        PlantAction.IsCactusFiring = false;
+    }
 }
 
 // 玉米加农炮发射
@@ -342,6 +347,10 @@ public static class PeaThrowSoundPatch
         {
             ModEntry.shoot();// 射击声音
             return false;  // 阻止原音效
+        } else if (theFoleyType == FoleyType.Throw && PlantAction.IsCactusFiring)
+        {
+            ModEntry.shoot2();// 射击声音
+            return false;  // 阻止原音效
         }
         return true;  // 其他音效正常播放
     }
@@ -378,6 +387,7 @@ public static class ZombieDropHeadPatch
 }
 
 // 僵尸生成
+/*
 [HarmonyPatch(typeof(Board), nameof(Board.AddZombie))]
 public static class AddZombiePatch
 {
@@ -391,6 +401,7 @@ public static class AddZombiePatch
         }
     }
 }
+*/
 // 僵尸生成2
 [HarmonyPatch(typeof(Board), nameof(Board.AddZombieInRow))]
 public static class AddZombieInRowPatch
@@ -399,7 +410,7 @@ public static class AddZombieInRowPatch
     {
         if (__result == null) return;
 
-        if (theZombieType == ZombieType.Dancer)
+        if (theZombieType == ZombieType.Dancer && (__instance.mApp.IsIZombieLevel() || __instance.mCurrentWave > 0))
         {
             ModEntry.MjbMusic();
         }

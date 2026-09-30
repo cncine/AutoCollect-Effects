@@ -60,6 +60,10 @@
 	<Reference Include="UnityEngine.AudioModule">
 		<HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.AudioModule.dll</HintPath>
 	</Reference>
+	<Reference Include="Il2CppTekly.TreeState.Runtime">
+		<HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppTekly.TreeState.Runtime.dll</HintPath>
+		<Private>False</Private>
+	</Reference>
   </ItemGroup>
 
 </Project>

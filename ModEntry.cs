@@ -13,7 +13,7 @@ using System.Text.RegularExpressions;
 using Il2CppReloaded.Gameplay;
 using SC_Tools;
 
-[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "0.66", "XSC")]
+[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "0.67", "XSC")]
 namespace AutoCollect;
 public class ModEntry : MelonMod
 {
@@ -438,6 +438,12 @@ public class ModEntry : MelonMod
         PlayOtherSoundByFile("gun-type1.wav", 1f, 0.6f + UnityEngine.Random.value * 0.8f);
     }
 
+    public static void shoot2()
+    {
+        if (!TimeManager.GetCanAction("Shoot2Sound", 0.05f)) return;
+        PlayOtherSoundByFile("gun-type2.wav", 1f, 0.6f + UnityEngine.Random.value * 0.8f);
+    }
+
     public static void MjbMusic()
     {
         if (!TimeManager.GetCanAction("MjbMusic", 1f)) return;
@@ -476,14 +482,17 @@ public class ModEntry : MelonMod
 
     public override void OnGUI()
     {
+        bool prevEnabled = GUI.enabled;
+        GUI.enabled = false;
         var label = _targetPlayer == 0
             ? "自动收阳光 -> 玩家1"
             : "自动收阳光 -> 玩家2";
-        if (GUI.Button(new Rect(10, 10, 230, 30), label))
+        if (GUI.Button(new Rect(10, 10, 230, 30), label) && GUI.enabled)
         {
             ToggleTarget();
         }
-        GUI.Label(new Rect(10, 44, 300, 20), "按 F9 也可切换目标玩家");
+        GUI.enabled = prevEnabled;
+        GUI.Label(new Rect(10, 44, 300, 20), "按 F9 切换目标玩家");
     }
 
     public static void reShowAt(int index, float screenX, float screenY)
