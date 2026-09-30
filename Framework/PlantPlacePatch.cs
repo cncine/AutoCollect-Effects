@@ -335,7 +335,10 @@ public static class PeaThrowSoundPatch
 {
     static bool Prefix(FoleyType theFoleyType)   // 注意：Prefix，返回 bool
     {
-        if (theFoleyType == FoleyType.Throw && PlantAction.IsPeashooterFiring)
+        if (theFoleyType == FoleyType.Dancer)
+        {
+            return false;
+        } else if (theFoleyType == FoleyType.Throw && PlantAction.IsPeashooterFiring)
         {
             ModEntry.shoot();// 射击声音
             return false;  // 阻止原音效
@@ -343,6 +346,17 @@ public static class PeaThrowSoundPatch
         return true;  // 其他音效正常播放
     }
 }
+
+/*
+[HarmonyPatch(typeof(GameplayActivity), nameof(GameplayActivity.PlaySample))]
+public static class GameplayPlaySamplePatch
+{
+    static void Postfix(Constants.Sound soundId)
+    {
+        MelonLogger.Msg($"🔊 [GameplayActivity] {soundId} ({(int)soundId})");
+    }
+}
+*/
 
 // 僵尸掉头
 [HarmonyPatch(typeof(Zombie), nameof(Zombie.DropHead))]
@@ -359,6 +373,35 @@ public static class ZombieDropHeadPatch
             float x = __instance.mPosX;
             float y = __instance.mPosY;
             ModEntry.joker(x, y);
+        }
+    }
+}
+
+// 僵尸生成
+[HarmonyPatch(typeof(Board), nameof(Board.AddZombie))]
+public static class AddZombiePatch
+{
+    static void Postfix(Board __instance, Zombie __result, ZombieType theZombieType, int theFromWave, bool shakeBrush)
+    {
+        if (__result == null) return;
+
+        if (theZombieType == ZombieType.Dancer)
+        {
+            ModEntry.MjbMusic();
+        }
+    }
+}
+// 僵尸生成2
+[HarmonyPatch(typeof(Board), nameof(Board.AddZombieInRow))]
+public static class AddZombieInRowPatch
+{
+    static void Postfix(Board __instance, Zombie __result, ZombieType theZombieType, int theRow, int theFromWave, bool shakeBrush)
+    {
+        if (__result == null) return;
+
+        if (theZombieType == ZombieType.Dancer)
+        {
+            ModEntry.MjbMusic();
         }
     }
 }

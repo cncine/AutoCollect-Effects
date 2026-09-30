@@ -13,7 +13,7 @@ using System.Text.RegularExpressions;
 using Il2CppReloaded.Gameplay;
 using SC_Tools;
 
-[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "0.65", "XSC")]
+[assembly: MelonInfo(typeof(AutoCollect.ModEntry), "AutoCollect & Effects", "0.66", "XSC")]
 namespace AutoCollect;
 public class ModEntry : MelonMod
 {
@@ -146,7 +146,11 @@ public class ModEntry : MelonMod
             resFolder + "\\bomb_all.png",
             resFolder + "\\aowalk.png",
             resFolder + "\\awei.png",
-            resFolder + "\\joker.png"
+            resFolder + "\\joker.png",
+
+            resFolder + "\\yo0.png",
+            resFolder + "\\yo1.png",
+            resFolder + "\\yo2.png"
         });
 
         _log.Msg($"[AutoCollect] 目标玩家 = {(_targetPlayer == 0 ? "玩家1" : "玩家2")}  (按 F9 或点左上角按钮切换)");
@@ -265,6 +269,12 @@ public class ModEntry : MelonMod
                 _popup?.Flash("#FF0000", 0.05f, 0f);
                 PlayOtherSoundByFile("020.wav");
             }
+        } else if (key == "yo1")
+        {
+            yoyo(1);
+        } else if (key == "yo2")
+        {
+            yoyo(2);
         }
     }
 
@@ -385,6 +395,13 @@ public class ModEntry : MelonMod
     public static void showAo()
     {
         if (!TimeManager.GetCanAction("Ao", 1f)) return;
+        if (UnityEngine.Random.value > 0.5f)
+        {
+            // yoyo霸屏
+            yoyo();
+            return;
+        }
+        // 青鬼
         float driftValue = UnityEngine.Random.Range(-200f, 200f);
         _popup?.PlaySequenceAt(16, 64, 110, 4, 0.2f, 720f, 300f + driftValue, 0f, 300f + driftValue, true, 3f, 5.3f);
         PlayOtherSoundByFile("aowalk.wav");
@@ -419,6 +436,31 @@ public class ModEntry : MelonMod
     {
         if (!TimeManager.GetCanAction("ShootSound", 0.05f)) return;
         PlayOtherSoundByFile("gun-type1.wav", 1f, 0.6f + UnityEngine.Random.value * 0.8f);
+    }
+
+    public static void MjbMusic()
+    {
+        if (!TimeManager.GetCanAction("MjbMusic", 1f)) return;
+        PlayOtherSoundByFile("mjb.wav");
+    }
+
+    public static void yoyo(int index = 0)
+    {
+        if (index == 0)
+        {
+            PlayOtherSoundByFile("yoyo.wav");
+            _popup?.ShowAt(19, 0f, 600f, 0f, 300f, 0.2f, 1.3f, 2f);
+            eventList.Add(new KeyValuePair<string, float>("yo1", Time.time + 1.7f));
+            eventList.Add(new KeyValuePair<string, float>("yo2", Time.time + 3.5f));
+        }
+        if (index == 1)
+        {
+            _popup?.ShowAt(20, 700f, 600f, 700f, 300f, 0.2f, 1.4f, 2f);
+        }
+        if (index == 2)
+        {
+            _popup?.ShowAt(21, 800f, 300f, 360f, 300f, 0.2f, 2.8f, 2f);
+        }
     }
 
     public static void PlayOtherSoundByFile(string path, float vom = 1f, float pitch = 1f)
