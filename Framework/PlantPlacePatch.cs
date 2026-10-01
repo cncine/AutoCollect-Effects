@@ -356,17 +356,6 @@ public static class PeaThrowSoundPatch
     }
 }
 
-/*
-[HarmonyPatch(typeof(GameplayActivity), nameof(GameplayActivity.PlaySample))]
-public static class GameplayPlaySamplePatch
-{
-    static void Postfix(Constants.Sound soundId)
-    {
-        MelonLogger.Msg($"🔊 [GameplayActivity] {soundId} ({(int)soundId})");
-    }
-}
-*/
-
 // 僵尸掉头
 [HarmonyPatch(typeof(Zombie), nameof(Zombie.DropHead))]
 public static class ZombieDropHeadPatch
@@ -387,22 +376,6 @@ public static class ZombieDropHeadPatch
 }
 
 // 僵尸生成
-/*
-[HarmonyPatch(typeof(Board), nameof(Board.AddZombie))]
-public static class AddZombiePatch
-{
-    static void Postfix(Board __instance, Zombie __result, ZombieType theZombieType, int theFromWave, bool shakeBrush)
-    {
-        if (__result == null) return;
-
-        if (theZombieType == ZombieType.Dancer)
-        {
-            ModEntry.MjbMusic();
-        }
-    }
-}
-*/
-// 僵尸生成2
 [HarmonyPatch(typeof(Board), nameof(Board.AddZombieInRow))]
 public static class AddZombieInRowPatch
 {
@@ -410,7 +383,7 @@ public static class AddZombieInRowPatch
     {
         if (__result == null) return;
 
-        if (theZombieType == ZombieType.Dancer && (__instance.mApp.IsIZombieLevel() || __instance.mCurrentWave > 0))
+        if (theZombieType == ZombieType.Dancer && (__instance.mApp.IsPuzzleMode() || __instance.mCurrentWave > 0))
         {
             ModEntry.MjbMusic();
         }
